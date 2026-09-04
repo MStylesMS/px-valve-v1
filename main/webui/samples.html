@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>PX-Valve-V1 UI samples</title>
+    <link rel="stylesheet" href="styles.css?v=valve8">
+</head>
+<body>
+    <div class="bg-grid" aria-hidden="true"></div>
+    <header class="topbar wrap">
+        <div class="brand">
+            <img src="assets/logo.png" alt="Logo" class="brand-logo" loading="lazy" decoding="async" onerror="this.style.display='none'">
+            <div>
+                <p class="kicker">Paradox Prop Console</p>
+                <h1>Valve UI samples</h1>
+            </div>
+        </div>
+        <nav class="tabs">
+            <a class="tab" href="index.html">Live</a>
+            <a class="tab" href="config.html">Config</a>
+            <a class="tab" href="monitor.html">Monitor</a>
+            <a class="tab" href="connection.html">Connect</a>
+            <a class="tab active" href="samples.html">Samples</a>
+        </nav>
+    </header>
+
+    <main class="wrap layout single">
+        <section class="panel wide">
+            <div class="panel-head">
+                <h2>Dummy-data scenarios</h2>
+            </div>
+            <p class="hint">Same Live / Monitor pages with canned reed state. Not shipped in the final device image.</p>
+            <div class="scenario-grid">
+                <a class="scenario-card" href="index.html?scenario=nominal">
+                    <h3>Basic I/O</h3>
+                    <p>Cards 0–7 left-to-right, top-to-bottom. All eight full brightness — no waiting dim. Unused #4 still shown.</p>
+                </a>
+                <a class="scenario-card" href="index.html?scenario=disabled">
+                    <h3>Scan disabled</h3>
+                    <p>Prop disable. Positions last-known, no inlet drive.</p>
+                </a>
+                <a class="scenario-card" href="index.html?scenario=ab-off">
+                    <h3>A–B between</h3>
+                    <p>Valve 0 OFF on top. Live v3 would wrongly treat this as a legal target.</p>
+                </a>
+                <a class="scenario-card" href="index.html?scenario=ab-a">
+                    <h3>Valve Order · A needs B</h3>
+                    <p>A-B active (A→B). Later valves dimmed / waiting. Unused hidden.</p>
+                </a>
+                <a class="scenario-card" href="index.html?scenario=ab-b">
+                    <h3>Valve Order · B needs A</h3>
+                    <p>Handle on B, target A. Rest waiting.</p>
+                </a>
+                <a class="scenario-card" href="index.html?scenario=path-mid">
+                    <h3>Valve Order · mid-path</h3>
+                    <p>Solved cards stay bright. One active. Later cards dimmed even if they sit on a target.</p>
+                </a>
+                <a class="scenario-card" href="index.html?scenario=path-rewind">
+                    <h3>Valve Order · rewind</h3>
+                    <p>A-B unsolved again. Everything after it returns to waiting.</p>
+                </a>
+                <a class="scenario-card" href="index.html?scenario=solved">
+                    <h3>Valve Order · solved</h3>
+                    <p>Every enabled seat current+target (green fill).</p>
+                </a>
+                <a class="scenario-card" href="index.html?scenario=targets">
+                    <h3>Target Positions</h3>
+                    <p>Any order. Disabled valves hidden. Mix of current vs target seats.</p>
+                </a>
+                <a class="scenario-card" href="monitor.html?scenario=ab-off">
+                    <h3>A–B · Monitor</h3>
+                    <p>Raw reeds on valve 0.</p>
+                </a>
+                <a class="scenario-card" href="config.html">
+                    <h3>Config</h3>
+                    <p>Mode, eight settings A–H per mode, per-valve seats / name / color / enable / order / target. A = valve4.js.</p>
+                </a>
+            </div>
+        </section>
+    </main>
+</body>
+</html>

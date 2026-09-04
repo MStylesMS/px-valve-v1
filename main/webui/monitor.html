@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>PX-Valve-V1 Monitor</title>
+    <link rel="stylesheet" href="styles.css?v=valve8">
+</head>
+<body>
+    <div class="bg-grid" aria-hidden="true"></div>
+    <header class="topbar wrap">
+        <div class="brand">
+            <img src="assets/logo.png" alt="Logo" class="brand-logo" loading="lazy" decoding="async" onerror="this.style.display='none'">
+            <div>
+                <p class="kicker">Paradox Prop Console</p>
+                <h1>Monitor</h1>
+            </div>
+        </div>
+        <nav class="tabs">
+            <a class="tab" href="index.html">Live</a>
+            <a class="tab" href="config.html">Config</a>
+            <a class="tab active" href="monitor.html">Monitor</a>
+            <a class="tab" href="connection.html">Connect</a>
+            <div class="status-icons" id="statusIcons"></div>
+        </nav>
+    </header>
+
+    <main class="wrap layout single">
+        <section class="panel wide">
+            <div class="panel-head">
+                <h2>Valve rows</h2>
+                <div class="mode-row">
+                    <span class="badge" id="monitorScenario">demo</span>
+                    <button id="refreshMonitor" class="btn btn-ghost">Refresh</button>
+                </div>
+            </div>
+            <p class="hint">Reed LOW = seated. Yellow ring = pin driven as inlet lamp. Valve 0 A/B reeds decide logic vs a bad switch — if the handle is on A or B and both bits stay high, look at hardware.</p>
+            <div class="channel-table-wrap">
+                <table class="channel-table" id="valveTable">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Color</th>
+                            <th>Pos</th>
+                            <th>Inlet</th>
+                            <th>Pwr</th>
+                            <th>Reeds 1–4</th>
+                            <th>Target</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+        </section>
+
+        <section class="panel wide">
+            <div class="panel-head">
+                <h2>MCP23S17 cluster</h2>
+            </div>
+            <p class="hint">HSPI 12/13/14/15, RST 27. Shared CS, addresses 0–2. Logical pins 0–47.</p>
+            <div class="mcp-grid" id="mcpGrid"></div>
+        </section>
+
+        <pre id="monitorLog" class="log hidden"></pre>
+    </main>
+
+    <script src="app.js?v=valve9"></script>
+    <script>
+        (function boot(attempt) {
+            if (window.PX && typeof window.PX.pageMonitor === "function") {
+                window.PX.pageMonitor();
+                return;
+            }
+            if (attempt >= 6) return;
+            var s = document.createElement("script");
+            s.src = "app.js?r=" + Date.now() + "-" + attempt;
+            s.onload = function () { boot(attempt + 1); };
+            s.onerror = function () { setTimeout(function () { boot(attempt + 1); }, 200 * (attempt + 1)); };
+            document.head.appendChild(s);
+        })(0);
+    </script>
+</body>
+</html>

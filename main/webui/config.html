@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>PX-Valve-V1 Config</title>
+    <link rel="stylesheet" href="styles.css?v=valve8">
+</head>
+<body>
+    <div class="bg-grid" aria-hidden="true"></div>
+    <header class="topbar wrap">
+        <div class="brand">
+            <img src="assets/logo.png" alt="Logo" class="brand-logo" loading="lazy" decoding="async" onerror="this.style.display='none'">
+            <div>
+                <p class="kicker">Paradox Prop Console</p>
+                <h1>Configuration</h1>
+            </div>
+        </div>
+        <nav class="tabs">
+            <a class="tab" href="index.html">Live</a>
+            <a class="tab active" href="config.html">Config</a>
+            <a class="tab" href="monitor.html">Monitor</a>
+            <a class="tab" href="connection.html">Connect</a>
+            <div class="status-icons" id="statusIcons"></div>
+        </nav>
+    </header>
+
+    <main class="wrap layout single">
+        <section class="panel wide">
+            <div class="panel-head">
+                <h2>Runtime Config</h2>
+                <div class="row-actions">
+                    <button id="applyConfig" class="btn">Apply</button>
+                    <button id="saveConfig" class="btn btn-warn">Apply + Save</button>
+                    <button id="restoreDefaults" class="btn btn-ghost">Restore Defaults</button>
+                </div>
+            </div>
+            <form id="configForm" class="form-grid">
+                <label>Game mode
+                    <select name="gameMode" id="gameMode">
+                        <option value="io">Basic I/O — Node owns path</option>
+                        <option value="valve_order">Valve Order — sequential path (valve4)</option>
+                        <option value="target_positions">Target Positions — any order</option>
+                    </select>
+                </label>
+                <div class="setting-picker" id="gameSettingPicker">
+                    <span class="setting-picker-label">Game setting</span>
+                    <input type="hidden" name="gameSetting" id="gameSetting" value="A">
+                    <div class="setting-slots" role="group" aria-label="Game setting A through H">
+                        <button type="button" class="setting-slot" data-slot="A">A</button>
+                        <button type="button" class="setting-slot" data-slot="B">B</button>
+                        <button type="button" class="setting-slot" data-slot="C">C</button>
+                        <button type="button" class="setting-slot" data-slot="D">D</button>
+                        <button type="button" class="setting-slot" data-slot="E">E</button>
+                        <button type="button" class="setting-slot" data-slot="F">F</button>
+                        <button type="button" class="setting-slot" data-slot="G">G</button>
+                        <button type="button" class="setting-slot" data-slot="H">H</button>
+                    </div>
+                    <p class="hint setting-hint" id="gameSettingHint"></p>
+                </div>
+                <label>Scan period (ms)
+                    <input name="scanPeriodMs" type="number" min="5" step="5">
+                </label>
+                <label>Debounce count
+                    <input name="debounceCount" type="number" min="1" max="20">
+                </label>
+                <label>Forced settle (ms)
+                    <input name="settleMs" type="number" min="10" step="10">
+                </label>
+                <label>Heartbeat (ms)
+                    <input name="heartbeatInterval" type="number" min="100" step="100">
+                </label>
+                <label class="toggle-field">Debug telemetry on Monitor
+                    <span class="toggle-row">
+                        <input name="debug" type="checkbox">
+                        <span>Show extra dumps (HTTP only)</span>
+                    </span>
+                </label>
+            </form>
+            <p class="hint" id="modeConfigHint">Basic I/O keeps Prop topics only. Valve Order and Target Positions take Valve Commands/Events — stop valve3.js first. Each mode has eight settings (A–H). <strong>A</strong> is the Crafty Fox valve4.js game. Select a letter, edit the table, then Apply / Apply + Save.</p>
+            <div class="valve-config-wrap">
+                <table class="valve-config-table" id="valveConfigTable">
+                    <thead>
+                        <tr>
+                            <th>#</th>
+                            <th>On</th>
+                            <th>Name</th>
+                            <th>Seats</th>
+                            <th>Color</th>
+                            <th class="col-order">Order</th>
+                            <th class="col-target">Target</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+            <p class="hint">Off valves are treated as already solved. In Valve Order they auto-complete when the previous step solves. Duplicate Order numbers highlight yellow until unique. Target <strong>RND</strong> picks a different seat when that valve activates (A↔B on 2-seat; any other mark on 3/4). Target Positions hides unused valves on Live.</p>
+            <pre id="configLog" class="log"></pre>
+        </section>
+
+        <section class="panel wide">
+            <div class="panel-head">
+                <h2>Raw JSON Command</h2>
+                <button id="sendRaw" class="btn">Send</button>
+            </div>
+            <textarea id="rawCommand" rows="4">{"Command":"forceScan"}</textarea>
+            <p class="hint">POST /api/command — capital Command. Also accepts {"Valve":0,"Inlet":3} and {"ReadValve":0}.</p>
+            <pre id="rawLog" class="log"></pre>
+        </section>
+    </main>
+
+    <script src="app.js?v=valve9"></script>
+    <script>
+        (function boot(attempt) {
+            if (window.PX && typeof window.PX.pageConfig === "function") {
+                window.PX.pageConfig();
+                return;
+            }
+            if (attempt >= 6) {
+                var log = document.getElementById("configLog");
+                if (log) log.textContent = "Failed to load app.js after retries. Hard-refresh the page.";
+                return;
+            }
+            var s = document.createElement("script");
+            s.src = "app.js?r=" + Date.now() + "-" + attempt;
+            s.onload = function () { boot(attempt + 1); };
+            s.onerror = function () { setTimeout(function () { boot(attempt + 1); }, 200 * (attempt + 1)); };
+            document.head.appendChild(s);
+        })(0);
+    </script>
+</body>
+</html>
