@@ -28,7 +28,8 @@ Local UI preview without flash:
 
 Scenario mocks: http://127.0.0.1:8092/samples.html
 
-Admin UI chrome: [docs/console-chrome.md](docs/console-chrome.md). Plan:
+Admin UI chrome: [docs/console-chrome.md](docs/console-chrome.md) (must work on
+phone / tablet / desktop — see Responsive section). Plan:
 [rooms/tfd/docs/ESP32-VALVE-PLAN.md](../../../rooms/tfd/docs/ESP32-VALVE-PLAN.md).
 
 ## MQTT (legacy Prop, required in I/O mode)

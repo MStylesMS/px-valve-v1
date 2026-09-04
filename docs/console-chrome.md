@@ -22,6 +22,18 @@ Tab order: **Live, Config, Monitor, Connect**.
 Same CSS tokens as px-wifi-v1 Signal Glass. Valve extras live at the bottom of
 `styles.css` (cards, seat boxes, MCP tables).
 
+
+## Responsive (required)
+
+Must work on phone (~390px), tablet (~768px), and desktop. Shared chrome rules
+live in `styles.css` and are documented in
+[px-wifi-v1/docs/console-chrome.md](../../px-wifi-v1/docs/console-chrome.md):
+
+- `max-width: 820px` — stack `.layout` **and** `.layout.live-layout`; wrap tabs
+- `max-width: 520px` — phone padding / single-column metrics; prop-specific grids
+
+Do not ship UI changes without checking those widths. Bootstrap is optional.
+
 ## Local UI iteration (no flash)
 
 ```powershell
