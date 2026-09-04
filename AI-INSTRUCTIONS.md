@@ -14,6 +14,7 @@ A–H per mode**; **A** emulates Crafty Fox `valve4.js`.
 - Target: classic **esp32**, IDF **6.0.x**, version from `version.txt`.
 - `EXTRA_COMPONENT_DIRS` → `../px-components`.
 - SoftAP form: `Paradox-PXValveV1-XXXX`.
+- Default mDNS hostname: **`valve.local`** (`networkName`; change via Connect or `POST /api/device/name`).
 - Default STA: `Paradox-TFD-1` / venue PSK; broker `192.168.8.130`.
 - First OTA onto live valve32: `.\scripts\ota_upload.ps1 -HostAddress 192.168.8.50 -Legacy`
 - Later: `.\scripts\ota_upload.ps1 -HostAddress 192.168.8.50`

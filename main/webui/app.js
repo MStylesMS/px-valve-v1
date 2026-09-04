@@ -771,7 +771,7 @@
                 mqttWarningsTopic: "/Paradox/TFD/Valve/Prop/warnings",
                 mqttGameStateTopic: "paradox/tfd/state",
                 mqttPropAnnounceTopic: "/Paradox/Props",
-                networkName: "px-valve-v1-a1b2",
+                networkName: "valve",
                 apSsid: "Paradox-PXValveV1-A1B2",
                 apIpAddress: "192.168.4.1",
                 apPassword: "",
