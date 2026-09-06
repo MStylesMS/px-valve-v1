@@ -656,6 +656,8 @@ static bool mqtt_publish_engine_events(bool publish_state_after)
 {
     char event_json[384];
     char topic[160];
+    char puzzle_topic[96];
+    char puzzle_payload[280];
     bool had_events = false;
 
     if (!svc_mqtt_is_connected()) {
@@ -665,6 +667,12 @@ static bool mqtt_publish_engine_events(bool publish_state_after)
     mqtt_build_topic(topic, sizeof(topic), "Events");
     while (valve_engine_pop_event_json(event_json, sizeof(event_json))) {
         mqtt_publish_or_warn(topic, event_json, 2, false);
+        had_events = true;
+    }
+
+    while (valve_engine_pop_puzzle_pub(puzzle_topic, sizeof(puzzle_topic),
+                                      puzzle_payload, sizeof(puzzle_payload))) {
+        mqtt_publish_or_warn(puzzle_topic, puzzle_payload, 1, false);
         had_events = true;
     }
 
@@ -1059,6 +1067,7 @@ static void mqtt_on_connected(void *ctx)
 
     mqtt_build_topic(commands_topic, sizeof(commands_topic), "Commands");
     svc_mqtt_subscribe(commands_topic, 1);
+    svc_mqtt_subscribe("/Paradox/TFD/Valve/Commands", 1);
     mqtt_get_follow_cfg(&follow_enabled, &unused_tol);
 
     game_state_topic[0] = '\0';
@@ -1140,6 +1149,9 @@ static void mqtt_on_message(const char *topic, size_t topic_len,
 
     if (topic_len == strlen(commands_topic) &&
         strncmp(topic, commands_topic, topic_len) == 0) {
+        (void)mqtt_enqueue_inbound(MQTT_INBOUND_COMMAND, data, data_len);
+    } else if (topic_len == strlen("/Paradox/TFD/Valve/Commands") &&
+               strncmp(topic, "/Paradox/TFD/Valve/Commands", topic_len) == 0) {
         (void)mqtt_enqueue_inbound(MQTT_INBOUND_COMMAND, data, data_len);
     } else if (game_state_topic[0] != '\0' &&
                topic_len == strlen(game_state_topic) &&

@@ -8,6 +8,7 @@
 #include <strings.h>
 #include "esp_app_desc.h"
 #include "esp_log.h"
+#include "esp_random.h"
 #include "esp_spiffs.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
@@ -22,8 +23,14 @@ static const char *TAG = "Valve32Prop";
 #define SLOT_COUNT 8
 #define EVENT_QUEUE_LEN 16
 #define EVENT_JSON_MAX 96
+#define PUZZLE_PUB_LEN 8
+#define PUZZLE_PUB_TOPIC 96
+#define PUZZLE_PUB_PAYLOAD 280
 #define CONFIG_PATH "/spiffs/config.json"
 #define CONFIG_FILE_MAX 32768
+
+#define TOPIC_VALVE_EVENTS "/Paradox/TFD/Valve/Events"
+#define TOPIC_WHOOSH "/Paradox/TFD/CHMB2/ImageSwitcher/Commands"
 
 static const char *s_mode_keys[MODE_COUNT] = {
     "io", "valve_order", "target_positions",
@@ -63,7 +70,13 @@ typedef struct {
     int position;
     int inlet;
     int debounce;
+    int pending;
 } valve_live_t;
+
+typedef struct {
+    char topic[PUZZLE_PUB_TOPIC];
+    char payload[PUZZLE_PUB_PAYLOAD];
+} puzzle_pub_t;
 
 typedef struct {
     valve_config_t cfg;
@@ -76,6 +89,17 @@ typedef struct {
     char event_queue[EVENT_QUEUE_LEN][EVENT_JSON_MAX];
     int event_head;
     int event_tail;
+    bool puzzle_running;
+    bool puzzle_solved;
+    char puzzle_state[16];
+    char solution[192];
+    int picked[VALVE_COUNT];
+    int seated[VALVE_COUNT];
+    int stored_inlet[VALVE_COUNT];
+    bool step_on[VALVE_COUNT];
+    puzzle_pub_t pubs[PUZZLE_PUB_LEN];
+    int pub_head;
+    int pub_tail;
     SemaphoreHandle_t lock;
 } valve_ctx_t;
 
@@ -126,16 +150,17 @@ static void valve_unlock(void)
 }
 
 /* Crafty Fox valve4.js: names, enable mask, evaluation order, RND seats.
- * Order IDs [0, 1, 7, 3, 5, 2, 6, 4]; valve 4 unused. A–B is 2-seat RND (A↔B). */
+ * Order IDs [0, 1, 3, 7, 5, 2, 6, 4]; valve 4 unused; white (ID 7) off.
+ * A–B is 2-seat RND (A↔B). */
 static const valve_meta_t s_valve4_defs[VALVE_COUNT] = {
     {true, "A-B", 2, "yellow", 1, "rnd"},
-    {true, "YEL", 4, "yellow", 2, "rnd"},
+    {true, "RED", 4, "red", 2, "rnd"},
     {true, "BLK", 4, "gray", 6, "rnd"},
-    {true, "WHT", 4, "white", 4, "rnd"},
+    {true, "YEL", 4, "yellow", 3, "rnd"},
     {false, "---", 4, "clear", 8, "rnd"},
     {true, "BLU", 4, "blue", 5, "rnd"},
     {true, "GRN", 4, "green", 7, "rnd"},
-    {true, "RED", 4, "red", 3, "rnd"},
+    {true, "WHT", 4, "white", 4, "rnd"},
 };
 
 static int mode_index(const char *mode)
@@ -181,8 +206,8 @@ static void sync_slot_from_active(valve_config_t *cfg)
 
 static void set_default_config(valve_config_t *cfg)
 {
-    cfg->scan_period_ms = 10;
-    cfg->debounce_count = 5;
+    cfg->scan_period_ms = 5;
+    cfg->debounce_count = 2;
     cfg->settle_ms = 50;
     cfg->heartbeat_interval_ms = 10000;
     cfg->debug = true;
@@ -196,14 +221,19 @@ static void set_default_config(valve_config_t *cfg)
     memcpy(cfg->valves, s_valve4_defs, sizeof(s_valve4_defs));
 }
 
+static void check_puzzle_locked(void);
+static void build_solution_locked(void);
+
 static void queue_event(int valve_id, int position)
 {
     int next = (s_ctx.event_head + 1) % EVENT_QUEUE_LEN;
+    int inlet = s_ctx.live[valve_id].inlet;
     if (next == s_ctx.event_tail) {
         s_ctx.event_tail = (s_ctx.event_tail + 1) % EVENT_QUEUE_LEN;
     }
     snprintf(s_ctx.event_queue[s_ctx.event_head], EVENT_JSON_MAX,
-             "{\"Valve\":%d,\"Position\":%d}", valve_id, position);
+             "{\"Valve\":%d,\"Position\":%d,\"Enabled\":%s,\"Inlet\":%d}",
+             valve_id, position, inlet > 0 ? "true" : "false", inlet);
     s_ctx.event_head = next;
 }
 
@@ -248,25 +278,30 @@ static const char *seat_label(const valve_meta_t *meta, int pos)
 static void activate_valve(int id, int inlet)
 {
     const valve_hw_t *hw = &s_hw[id];
+    int prev;
     if (inlet < 0 || inlet > 4) {
         return;
     }
+    prev = s_ctx.live[id].inlet;
     s_ctx.live[id].inlet = inlet;
     if (inlet == 0) {
         mcp23s17_set_output(hw->power, 0);
         for (int i = 0; i < 4; i++) {
             mcp23s17_set_input_pullup(hw->reed_start + i);
         }
-        return;
-    }
-    mcp23s17_set_output(hw->power, 1);
-    for (int p = 1; p <= 4; p++) {
-        int pin = hw->reed_start - 1 + p;
-        if (p == inlet) {
-            mcp23s17_set_output(pin, 0);
-        } else {
-            mcp23s17_set_input_pullup(pin);
+    } else {
+        mcp23s17_set_output(hw->power, 1);
+        for (int p = 1; p <= 4; p++) {
+            int pin = hw->reed_start - 1 + p;
+            if (p == inlet) {
+                mcp23s17_set_output(pin, 0);
+            } else {
+                mcp23s17_set_input_pullup(pin);
+            }
         }
+    }
+    if (prev != inlet) {
+        queue_event(id, s_ctx.live[id].position);
     }
 }
 
@@ -304,7 +339,11 @@ static void publish_if_changed(int id, int pos, bool force)
 {
     if (force || pos != s_ctx.live[id].position) {
         s_ctx.live[id].position = pos;
+        if (pos == 1 || pos == 2 || (pos >= 3 && pos <= 4 && s_ctx.cfg.valves[id].seats > 2)) {
+            s_ctx.seated[id] = pos;
+        }
         queue_event(id, pos);
+        check_puzzle_locked();
     }
 }
 
@@ -313,6 +352,7 @@ static void force_scan_all(void)
     for (int i = 0; i < VALVE_COUNT; i++) {
         int pos = read_position(i, true);
         s_ctx.live[i].debounce = 0;
+        s_ctx.live[i].pending = pos;
         publish_if_changed(i, pos, true);
     }
 }
@@ -334,6 +374,393 @@ static void enable_prop(void)
     s_ctx.prop_enabled = true;
 }
 
+static bool puzzle_mode_active(void)
+{
+    return strcmp(s_ctx.cfg.game_mode, "valve_order") == 0 ||
+           strcmp(s_ctx.cfg.game_mode, "target_positions") == 0;
+}
+
+static void queue_puzzle_pub(const char *topic, const char *payload)
+{
+    int next = (s_ctx.pub_head + 1) % PUZZLE_PUB_LEN;
+    if (next == s_ctx.pub_tail) {
+        s_ctx.pub_tail = (s_ctx.pub_tail + 1) % PUZZLE_PUB_LEN;
+    }
+    copy_bounded(s_ctx.pubs[s_ctx.pub_head].topic, PUZZLE_PUB_TOPIC, topic);
+    copy_bounded(s_ctx.pubs[s_ctx.pub_head].payload, PUZZLE_PUB_PAYLOAD, payload);
+    s_ctx.pub_head = next;
+}
+
+static void queue_whoosh(bool on)
+{
+    queue_puzzle_pub(TOPIC_WHOOSH,
+                     on ? "{\"Command\":\"playAudioFx\",\"Audio\":\"on-whoosh.mp3\"}"
+                        : "{\"Command\":\"playAudioFx\",\"Audio\":\"off-whoosh.mp3\"}");
+}
+
+static void queue_puzzle_state(const char *state)
+{
+    char buf[48];
+    snprintf(buf, sizeof(buf), "{\"State\":\"%s\"}", state);
+    queue_puzzle_pub(TOPIC_VALVE_EVENTS, buf);
+}
+
+static bool is_two_seat(int id)
+{
+    return s_ctx.cfg.valves[id].seats == 2;
+}
+
+static int seat_max(int id)
+{
+    int seats = s_ctx.cfg.valves[id].seats;
+    if (seats == 2) {
+        return 2;
+    }
+    if (seats == 3) {
+        return 3;
+    }
+    return 4;
+}
+
+static void ordered_ids(int *out)
+{
+    for (int i = 0; i < VALVE_COUNT; i++) {
+        out[i] = i;
+    }
+    for (int i = 0; i < VALVE_COUNT; i++) {
+        for (int j = i + 1; j < VALVE_COUNT; j++) {
+            int oi = s_ctx.cfg.valves[out[i]].order;
+            int oj = s_ctx.cfg.valves[out[j]].order;
+            if (oj < oi || (oj == oi && out[j] < out[i])) {
+                int t = out[i];
+                out[i] = out[j];
+                out[j] = t;
+            }
+        }
+    }
+}
+
+static int next_enabled_index(const int *order, int after)
+{
+    for (int i = after + 1; i < VALVE_COUNT; i++) {
+        if (s_ctx.cfg.valves[order[i]].enabled) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+static int first_enabled_index(const int *order)
+{
+    return next_enabled_index(order, -1);
+}
+
+static int pick_ab_target(int current)
+{
+    /* A or OFF (or unused 3/4) → B. Only start-on-B → A. */
+    if (current == 2) {
+        return 1;
+    }
+    return 2;
+}
+
+static int pick_rnd_target(int id)
+{
+    int current = s_ctx.live[id].position;
+    int maxs = seat_max(id);
+    int pool[4];
+    int n = 0;
+    if (current < 1 || current > maxs) {
+        current = 1; /* between seats: inlet is 1, target must not be 1 */
+    }
+    for (int p = 1; p <= maxs; p++) {
+        if (p != current) {
+            pool[n++] = p;
+        }
+    }
+    if (n == 0) {
+        for (int p = 1; p <= maxs; p++) {
+            pool[n++] = p;
+        }
+    }
+    return pool[esp_random() % (uint32_t)n];
+}
+
+static int pick_configured_target(int id)
+{
+    const valve_meta_t *m = &s_ctx.cfg.valves[id];
+    if (strcmp(m->target, "rnd") != 0) {
+        int t = atoi(m->target);
+        if (t >= 1 && t <= seat_max(id)) {
+            return t;
+        }
+    }
+    return pick_rnd_target(id);
+}
+
+static void assign_step(int id)
+{
+    if (s_ctx.picked[id] == 0) {
+        if (is_two_seat(id)) {
+            s_ctx.picked[id] = pick_ab_target(s_ctx.live[id].position);
+            return;
+        }
+        int inlet = s_ctx.live[id].position;
+        if (inlet < 1 || inlet > 4) {
+            inlet = 1;
+        }
+        s_ctx.stored_inlet[id] = inlet;
+        s_ctx.picked[id] = pick_configured_target(id);
+        activate_valve(id, inlet);
+        return;
+    }
+    if (!is_two_seat(id)) {
+        int inlet = s_ctx.stored_inlet[id] > 0 ? s_ctx.stored_inlet[id] : 1;
+        activate_valve(id, inlet);
+    }
+}
+
+static void pick_target_positions_on_enable(int id)
+{
+    if (s_ctx.picked[id] != 0 || !s_ctx.cfg.valves[id].enabled) {
+        return;
+    }
+    if (is_two_seat(id)) {
+        s_ctx.picked[id] = pick_ab_target(s_ctx.live[id].position);
+    } else {
+        int inlet = s_ctx.live[id].position;
+        if (inlet < 1 || inlet > 4) {
+            inlet = 1;
+        }
+        if (s_ctx.stored_inlet[id] == 0) {
+            s_ctx.stored_inlet[id] = inlet;
+        }
+        s_ctx.picked[id] = pick_configured_target(id);
+    }
+    build_solution_locked();
+}
+
+static bool valve_correct(int id)
+{
+    if (!s_ctx.cfg.valves[id].enabled) {
+        return true;
+    }
+    if (s_ctx.picked[id] == 0) {
+        return false;
+    }
+    int pos = s_ctx.live[id].position;
+    if (is_two_seat(id)) {
+        return (pos == 1 || pos == 2) && pos == s_ctx.picked[id];
+    }
+    return pos == s_ctx.picked[id];
+}
+
+static void build_solution_locked(void)
+{
+    char buf[192] = "Target (Valve @ Position):";
+    int order[VALVE_COUNT];
+    ordered_ids(order);
+    for (int i = 0; i < VALVE_COUNT; i++) {
+        int id = order[i];
+        const valve_meta_t *m = &s_ctx.cfg.valves[id];
+        if (!m->enabled || s_ctx.picked[id] == 0) {
+            continue;
+        }
+        char part[32];
+        snprintf(part, sizeof(part), " %s@%s", m->name, seat_label(m, s_ctx.picked[id]));
+        if (strlen(buf) + strlen(part) < sizeof(buf) - 1) {
+            strcat(buf, part);
+        }
+    }
+    copy_bounded(s_ctx.solution, sizeof(s_ctx.solution), buf);
+    char json[220];
+    snprintf(json, sizeof(json), "{\"Solution\":\"%s\"}", s_ctx.solution);
+    queue_puzzle_pub(TOPIC_VALVE_EVENTS, json);
+}
+
+static void darken_later_steps(const int *order, int from_index)
+{
+    bool any = false;
+    for (int i = from_index; i < VALVE_COUNT; i++) {
+        int id = order[i];
+        if (!s_ctx.cfg.valves[id].enabled) {
+            continue;
+        }
+        if (s_ctx.live[id].inlet != 0 || s_ctx.step_on[id]) {
+            any = true;
+        }
+        s_ctx.step_on[id] = false;
+        /* Keep picked[] and stored_inlet[] so a return can restore. */
+        activate_valve(id, 0);
+    }
+    if (any) {
+        queue_whoosh(false);
+    }
+}
+
+static void mark_solved_locked(void)
+{
+    s_ctx.puzzle_solved = true;
+    s_ctx.puzzle_running = false;
+    copy_bounded(s_ctx.puzzle_state, sizeof(s_ctx.puzzle_state), "solved");
+    queue_whoosh(true);
+    queue_puzzle_pub(TOPIC_VALVE_EVENTS, "solved");
+    build_solution_locked();
+}
+
+static void check_targets_locked(void)
+{
+    bool all = true;
+    for (int i = 0; i < VALVE_COUNT; i++) {
+        if (!s_ctx.cfg.valves[i].enabled) {
+            continue;
+        }
+        /* Host owns power. Do not auto-enable. RND waits for first enable. */
+        if (s_ctx.picked[i] == 0 || !valve_correct(i)) {
+            s_ctx.step_on[i] = false;
+            all = false;
+        } else {
+            s_ctx.step_on[i] = true;
+        }
+    }
+    build_solution_locked();
+    if (all) {
+        mark_solved_locked();
+    }
+}
+
+static void check_order_locked(void)
+{
+    int order[VALVE_COUNT];
+    bool prefix = true;
+    ordered_ids(order);
+
+    for (int i = 0; i < VALVE_COUNT; i++) {
+        int id = order[i];
+        bool cfg_on = s_ctx.cfg.valves[id].enabled;
+        bool ok = valve_correct(id);
+
+        if (!cfg_on) {
+            continue;
+        }
+        if (!prefix) {
+            continue;
+        }
+        if (ok) {
+            s_ctx.step_on[id] = true;
+            if (is_two_seat(id)) {
+                activate_valve(id, 3);
+            }
+            int ni = next_enabled_index(order, i);
+            if (ni < 0) {
+                mark_solved_locked();
+                return;
+            }
+            int nid = order[ni];
+            if (s_ctx.picked[nid] == 0) {
+                assign_step(nid);
+                queue_whoosh(true);
+                build_solution_locked();
+            } else if (!is_two_seat(nid) && s_ctx.live[nid].inlet == 0) {
+                int inlet = s_ctx.stored_inlet[nid] > 0 ? s_ctx.stored_inlet[nid] : 1;
+                activate_valve(nid, inlet);
+            }
+        } else {
+            prefix = false;
+            s_ctx.step_on[id] = false;
+            if (is_two_seat(id)) {
+                activate_valve(id, 0);
+            }
+            darken_later_steps(order, i + 1);
+            build_solution_locked();
+        }
+    }
+}
+
+static void check_puzzle_locked(void)
+{
+    if (!s_ctx.puzzle_running || s_ctx.puzzle_solved) {
+        return;
+    }
+    if (strcmp(s_ctx.cfg.game_mode, "target_positions") == 0) {
+        check_targets_locked();
+        return;
+    }
+    if (strcmp(s_ctx.cfg.game_mode, "valve_order") == 0) {
+        check_order_locked();
+    }
+}
+
+static void puzzle_clear_locked(void)
+{
+    s_ctx.puzzle_running = false;
+    s_ctx.puzzle_solved = false;
+    copy_bounded(s_ctx.puzzle_state, sizeof(s_ctx.puzzle_state), "ready");
+    s_ctx.solution[0] = '\0';
+    for (int i = 0; i < VALVE_COUNT; i++) {
+        s_ctx.picked[i] = 0;
+        s_ctx.stored_inlet[i] = 0;
+        s_ctx.step_on[i] = false;
+    }
+}
+
+static void puzzle_reset_locked(void)
+{
+    puzzle_clear_locked();
+    disable_prop();
+    queue_puzzle_state("ready");
+}
+
+static void puzzle_start_locked(void)
+{
+    int order[VALVE_COUNT];
+    int first;
+
+    puzzle_clear_locked();
+    enable_prop();
+    ordered_ids(order);
+    first = first_enabled_index(order);
+    if (strcmp(s_ctx.cfg.game_mode, "target_positions") == 0) {
+        /* Stay dark. Fixed targets are known now; RND waits for host enable. */
+        for (int i = 0; i < VALVE_COUNT; i++) {
+            const valve_meta_t *m = &s_ctx.cfg.valves[i];
+            if (!m->enabled || strcmp(m->target, "rnd") == 0) {
+                continue;
+            }
+            int t = atoi(m->target);
+            if (t >= 1 && t <= seat_max(i)) {
+                s_ctx.picked[i] = t;
+            }
+        }
+    } else if (first >= 0) {
+        int id = order[first];
+        if (is_two_seat(id)) {
+            s_ctx.picked[id] = pick_ab_target(s_ctx.live[id].position);
+        } else {
+            assign_step(id);
+        }
+    }
+    s_ctx.puzzle_running = true;
+    copy_bounded(s_ctx.puzzle_state, sizeof(s_ctx.puzzle_state), "running");
+    queue_puzzle_state("running");
+    build_solution_locked();
+    check_puzzle_locked();
+}
+
+static const char *valve_phase(int id)
+{
+    if (!puzzle_mode_active() || !s_ctx.cfg.valves[id].enabled) {
+        return "on";
+    }
+    if (s_ctx.step_on[id] || (s_ctx.picked[id] && valve_correct(id))) {
+        return "done";
+    }
+    if (s_ctx.picked[id] != 0) {
+        return "active";
+    }
+    return "waiting";
+}
+
 static void scan_all(void)
 {
     if (!s_ctx.prop_enabled) {
@@ -341,14 +768,25 @@ static void scan_all(void)
     }
     for (int i = 0; i < VALVE_COUNT; i++) {
         int pos = read_position(i, false);
-        if (pos != s_ctx.live[i].position) {
+        int need = s_ctx.cfg.debounce_count;
+        if (need < 1) {
+            need = 1;
+        }
+        /* Require consecutive identical samples. The old counter accepted any
+         * mix of "not last published" and often reported OFF/next instead of
+         * a brief target hit. Seated contacts confirm at `need`; OFF uses one
+         * extra sample so a 10 ms seat is published before it is cleared. */
+        if (pos != s_ctx.live[i].pending) {
+            s_ctx.live[i].pending = pos;
+            s_ctx.live[i].debounce = 1;
+        } else if (s_ctx.live[i].debounce < 100) {
             s_ctx.live[i].debounce++;
-            if (s_ctx.live[i].debounce >= s_ctx.cfg.debounce_count) {
-                s_ctx.live[i].debounce = 0;
-                publish_if_changed(i, pos, true);
-            }
-        } else {
-            s_ctx.live[i].debounce = 0;
+        }
+        if (pos == 0) {
+            need += 1;
+        }
+        if (s_ctx.live[i].debounce >= need && pos != s_ctx.live[i].position) {
+            publish_if_changed(i, pos, true);
         }
     }
 }
@@ -536,12 +974,17 @@ static void apply_config_fields(cJSON *root, bool apply_valves_without_presets)
     }
     n = cJSON_GetObjectItemCaseSensitive(root, "gameMode");
     if (cJSON_IsString(n) && n->valuestring) {
+        char prev_mode[24];
+        copy_bounded(prev_mode, sizeof(prev_mode), s_ctx.cfg.game_mode);
         if (strcmp(n->valuestring, "valve_order") == 0 ||
             strcmp(n->valuestring, "target_positions") == 0 ||
             strcmp(n->valuestring, "io") == 0) {
             copy_bounded(s_ctx.cfg.game_mode, sizeof(s_ctx.cfg.game_mode), n->valuestring);
         } else if (strcmp(n->valuestring, "fixed_sequence") == 0) {
             copy_bounded(s_ctx.cfg.game_mode, sizeof(s_ctx.cfg.game_mode), "valve_order");
+        }
+        if (strcmp(prev_mode, s_ctx.cfg.game_mode) != 0) {
+            puzzle_reset_locked();
         }
     }
     n = cJSON_GetObjectItemCaseSensitive(root, "scanPeriodMs");
@@ -687,7 +1130,12 @@ static void append_valves_from(cJSON *root, const char *key, const valve_meta_t 
             cJSON_AddNumberToObject(v, "inlet", inlet);
             cJSON_AddBoolToObject(v, "power", inlet > 0);
             cJSON_AddStringToObject(v, "posLabel", seat_label(m, pos));
-            if (strcmp(m->target, "rnd") == 0) {
+            cJSON_AddStringToObject(v, "phase", valve_phase(i));
+            cJSON_AddNumberToObject(v, "pickedTarget", s_ctx.picked[i]);
+            if (s_ctx.picked[i] > 0) {
+                cJSON_AddNumberToObject(v, "resolvedTarget", s_ctx.picked[i]);
+                cJSON_AddStringToObject(v, "targetLabel", seat_label(m, s_ctx.picked[i]));
+            } else if (strcmp(m->target, "rnd") == 0) {
                 cJSON_AddStringToObject(v, "targetLabel", "RND");
             } else {
                 cJSON_AddStringToObject(v, "targetLabel", seat_label(m, atoi(m->target)));
@@ -886,6 +1334,8 @@ esp_err_t valve_engine_init(void)
         s_ctx.live[i].inlet = 0;
     }
 
+    copy_bounded(s_ctx.puzzle_state, sizeof(s_ctx.puzzle_state), "ready");
+
     if (xTaskCreate(scan_task, "valve_scan", 4096, NULL, 6, NULL) != pdPASS) {
         return ESP_ERR_NO_MEM;
     }
@@ -909,9 +1359,11 @@ void valve_engine_get_state_json(char *out, size_t out_size)
     cJSON_AddStringToObject(root, "version", app ? app->version : "0.01");
     cJSON_AddBoolToObject(root, "enabled", s_ctx.prop_enabled);
     cJSON_AddStringToObject(root, "gameMode", s_ctx.cfg.game_mode);
-    cJSON_AddStringToObject(root, "puzzleState", s_ctx.prop_enabled ? "running" : "paused");
-    cJSON_AddBoolToObject(root, "solved", false);
-    cJSON_AddStringToObject(root, "solution", "");
+    cJSON_AddStringToObject(root, "puzzleState",
+                            s_ctx.puzzle_state[0] ? s_ctx.puzzle_state
+                                                 : (s_ctx.prop_enabled ? "running" : "paused"));
+    cJSON_AddBoolToObject(root, "solved", s_ctx.puzzle_solved);
+    cJSON_AddStringToObject(root, "solution", s_ctx.solution);
     cJSON_AddBoolToObject(root, "wifiConnected", s_ctx.wifi_connected);
     cJSON_AddStringToObject(root, "wifiSsid", s_ctx.wifi_ssid);
     cJSON_AddNumberToObject(root, "wifiRssi", s_ctx.wifi_rssi);
@@ -1019,7 +1471,18 @@ esp_err_t valve_engine_handle_command_json(const char *json, char *response, siz
         return ESP_ERR_TIMEOUT;
     }
 
-    if (cmd && strcmp(cmd, "enable") == 0) {
+    if (cmd && puzzle_mode_active() &&
+        (strcmp(cmd, "start") == 0 || strcmp(cmd, "reset") == 0 ||
+         strcmp(cmd, "stop") == 0 || strcmp(cmd, "getSolution") == 0)) {
+        if (strcmp(cmd, "start") == 0) {
+            puzzle_start_locked();
+        } else if (strcmp(cmd, "getSolution") == 0) {
+            build_solution_locked();
+        } else {
+            puzzle_reset_locked();
+        }
+        copy_bounded(response, response_size, "{\"ok\":true}");
+    } else if (cmd && strcmp(cmd, "enable") == 0) {
         enable_prop();
         copy_bounded(response, response_size, "{\"ok\":true,\"Command\":\"enable\"}");
     } else if (cmd && strcmp(cmd, "disable") == 0) {
@@ -1030,6 +1493,14 @@ esp_err_t valve_engine_handle_command_json(const char *json, char *response, siz
         copy_bounded(response, response_size, "{\"ok\":true,\"Command\":\"forceScan\"}");
     } else if (valve_id >= 0 && valve_id < VALVE_COUNT && inlet >= 0 && inlet <= 4) {
         activate_valve(valve_id, inlet);
+        if (s_ctx.puzzle_running &&
+            strcmp(s_ctx.cfg.game_mode, "target_positions") == 0 &&
+            inlet > 0) {
+            pick_target_positions_on_enable(valve_id);
+        }
+        if (s_ctx.puzzle_running) {
+            check_puzzle_locked();
+        }
         copy_bounded(response, response_size, "{\"ok\":true}");
     } else if (read_id >= 0 && read_id < VALVE_COUNT) {
         int pos = read_position(read_id, true);
@@ -1082,6 +1553,37 @@ esp_err_t valve_engine_restore_defaults(bool persist, char *response, size_t res
     valve_unlock();
     copy_bounded(response, response_size, "{\"ok\":true}");
     return ESP_OK;
+}
+
+bool valve_engine_owns_puzzle(void)
+{
+    bool owns = false;
+    if (valve_lock()) {
+        owns = puzzle_mode_active();
+        valve_unlock();
+    }
+    return owns;
+}
+
+esp_err_t valve_engine_handle_puzzle_command_json(const char *json, char *response, size_t response_size)
+{
+    return valve_engine_handle_command_json(json, response, response_size);
+}
+
+bool valve_engine_pop_puzzle_pub(char *topic, size_t topic_size, char *payload, size_t payload_size)
+{
+    if (!valve_lock()) {
+        return false;
+    }
+    if (s_ctx.pub_tail == s_ctx.pub_head) {
+        valve_unlock();
+        return false;
+    }
+    copy_bounded(topic, topic_size, s_ctx.pubs[s_ctx.pub_tail].topic);
+    copy_bounded(payload, payload_size, s_ctx.pubs[s_ctx.pub_tail].payload);
+    s_ctx.pub_tail = (s_ctx.pub_tail + 1) % PUZZLE_PUB_LEN;
+    valve_unlock();
+    return true;
 }
 
 bool valve_engine_pop_event_json(char *out, size_t out_size)

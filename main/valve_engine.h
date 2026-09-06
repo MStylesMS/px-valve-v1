@@ -27,6 +27,9 @@ void valve_engine_get_default_config_json(char *out, size_t out_size);
 int valve_engine_get_heartbeat_interval_ms(void);
 
 esp_err_t valve_engine_handle_command_json(const char *json, char *response, size_t response_size);
+esp_err_t valve_engine_handle_puzzle_command_json(const char *json, char *response, size_t response_size);
+bool valve_engine_owns_puzzle(void);
+bool valve_engine_pop_puzzle_pub(char *topic, size_t topic_size, char *payload, size_t payload_size);
 esp_err_t valve_engine_apply_config_json(const char *json, bool persist, char *response, size_t response_size);
 esp_err_t valve_engine_restore_defaults(bool persist, char *response, size_t response_size);
 

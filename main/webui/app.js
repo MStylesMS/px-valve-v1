@@ -40,13 +40,13 @@
         /* Crafty Fox valve4.js: validValves, colours, targetValveOrder, RND seats. */
         return [
             { id: 0, enabled: true, name: "A-B", seats: 2, color: "yellow", order: 1, target: "rnd" },
-            { id: 1, enabled: true, name: "YEL", seats: 4, color: "yellow", order: 2, target: "rnd" },
+            { id: 1, enabled: true, name: "RED", seats: 4, color: "red", order: 2, target: "rnd" },
             { id: 2, enabled: true, name: "BLK", seats: 4, color: "gray", order: 6, target: "rnd" },
-            { id: 3, enabled: true, name: "WHT", seats: 4, color: "white", order: 4, target: "rnd" },
+            { id: 3, enabled: true, name: "YEL", seats: 4, color: "yellow", order: 3, target: "rnd" },
             { id: 4, enabled: false, name: "---", seats: 4, color: "clear", order: 8, target: "rnd" },
             { id: 5, enabled: true, name: "BLU", seats: 4, color: "blue", order: 5, target: "rnd" },
             { id: 6, enabled: true, name: "GRN", seats: 4, color: "green", order: 7, target: "rnd" },
-            { id: 7, enabled: true, name: "RED", seats: 4, color: "red", order: 3, target: "rnd" }
+            { id: 7, enabled: true, name: "WHT", seats: 4, color: "white", order: 4, target: "rnd" }
         ];
     }
 
@@ -151,8 +151,8 @@
         gameSetting: "A",
         gameSettings: defaultGameSettings(),
         modePresets: defaultModePresets(),
-        scanPeriodMs: 10,
-        debounceCount: 5,
+        scanPeriodMs: 5,
+        debounceCount: 2,
         settleMs: 50,
         heartbeatInterval: 10000,
         debug: true,
@@ -973,7 +973,18 @@
         if (path) {
             const byId = {};
             state.valves.forEach((v) => { byId[v.id] = v; });
-            applyPuzzlePhases(state.valves, mode, state.scenario || "live");
+            const liveFirmware = (state.scenario || "live") === "live" &&
+                state.valves.some((v) => v.phase === "waiting" || v.phase === "active" || v.phase === "done");
+            if (liveFirmware) {
+                state.valves.forEach((v) => {
+                    if (v.pickedTarget) {
+                        v.resolvedTarget = v.pickedTarget;
+                        v.targetLabel = seatLabel(v, v.pickedTarget);
+                    }
+                });
+            } else {
+                applyPuzzlePhases(state.valves, mode, state.scenario || "live");
+            }
             path.innerHTML = displayIds(mode, state.valves).map((id) => renderStation(byId[id])).join("");
         }
     }
@@ -1205,7 +1216,7 @@
 
     function settingHint(letter) {
         if (letter === "A") {
-            return "A — Crafty Fox valve4.js: order 0→1→7→3→5→2→6 (#4 off), names A-B/YEL/BLK/WHT/BLU/GRN/RED, RND targets, A–B flip.";
+            return "A — Crafty Fox valve4.js: order 0→1→3→7→5→2→6 (#4 off), names A-B/RED/BLK/YEL/BLU/GRN/WHT (A/B, red, yellow, white, blue, black, green), RND targets, A–B flip.";
         }
         return letter + " — custom setting for this mode. Edit the table, then Apply or Apply + Save.";
     }

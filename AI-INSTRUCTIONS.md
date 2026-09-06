@@ -5,9 +5,12 @@ TFD generator-room sequential valve firmware for Paradox escape rooms.
 ## Status
 
 Firmware + Signal Glass console for **Valve32Prop** (`.50`). Default game mode
-is **Basic I/O** so Node `valve3.js` keeps the path. Do not enable Valve Order
-/ Target Positions while valve3.js is running. Config holds **eight settings
-A–H per mode**; **A** emulates Crafty Fox `valve4.js`.
+is **Basic I/O** so Node `valve4.js` keeps the path. Leave `valve3.js`
+untouched. Play rules: [rooms/tfd/docs/VALVE-LOGIC.md](../../../rooms/tfd/docs/VALVE-LOGIC.md)
+(A or OFF → B; leave-target unwinds downstream and keeps colour targets;
+Target Positions stay dark until the host enables). Do not enable Valve
+Order / Target Positions while Node valve scripts are running. Config holds
+**eight settings A–H per mode**; **A** emulates Crafty Fox `valve4.js`.
 
 ## Firmware
 
@@ -38,10 +41,11 @@ phone / tablet / desktop — see Responsive section). Plan:
 | Topic | Payload |
 |-------|---------|
 | `/Paradox/TFD/Valve/Prop/Commands` | `enable` / `disable` / `forceScan`, `{Valve,Inlet}` |
-| `/Paradox/TFD/Valve/Prop/Events` | `{Valve, Position}` |
+| `/Paradox/TFD/Valve/Prop/Events` | `{Valve, Position, Enabled, Inlet}` |
 | `/Paradox/Props` | heartbeat id `Valve32Prop` |
 
-Do not rewrite `valve3.js` / `generator.js` unless asked.
+Do not rewrite `valve3.js` / `generator.js` unless asked. Path work goes in
+`valve4.js` until the ESP engine matches VALVE-LOGIC and is OTAd.
 Accept `command` as an alias of `Command`; publish PascalCase.
 
 ## Other conventions
