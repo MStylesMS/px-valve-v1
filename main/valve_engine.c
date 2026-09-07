@@ -97,6 +97,7 @@ typedef struct {
     int seated[VALVE_COUNT];
     int stored_inlet[VALVE_COUNT];
     bool step_on[VALVE_COUNT];
+    bool gm_forced[VALVE_COUNT];
     puzzle_pub_t pubs[PUZZLE_PUB_LEN];
     int pub_head;
     int pub_tail;
@@ -545,6 +546,9 @@ static bool valve_correct(int id)
     if (!s_ctx.cfg.valves[id].enabled) {
         return true;
     }
+    if (s_ctx.gm_forced[id]) {
+        return true;
+    }
     if (s_ctx.picked[id] == 0) {
         return false;
     }
@@ -701,6 +705,7 @@ static void puzzle_clear_locked(void)
         s_ctx.picked[i] = 0;
         s_ctx.stored_inlet[i] = 0;
         s_ctx.step_on[i] = false;
+        s_ctx.gm_forced[i] = false;
     }
 }
 
@@ -745,6 +750,76 @@ static void puzzle_start_locked(void)
     queue_puzzle_state("running");
     build_solution_locked();
     check_puzzle_locked();
+}
+
+static void gm_force_valve_target_locked(int id)
+{
+    int pos = s_ctx.live[id].position;
+
+    if (is_two_seat(id)) {
+        if (pos != 1 && pos != 2) {
+            pos = 1;
+        }
+        s_ctx.picked[id] = pos;
+    } else {
+        if (pos < 1 || pos > seat_max(id)) {
+            pos = s_ctx.stored_inlet[id] > 0 ? s_ctx.stored_inlet[id] : 1;
+        }
+        s_ctx.picked[id] = pos;
+        s_ctx.stored_inlet[id] = pos;
+    }
+    s_ctx.gm_forced[id] = true;
+    s_ctx.step_on[id] = true;
+    if (is_two_seat(id)) {
+        activate_valve(id, 3);
+    }
+}
+
+static void gm_solve_valve_locked(int id)
+{
+    if (id < 0 || id >= VALVE_COUNT || !s_ctx.cfg.valves[id].enabled) {
+        return;
+    }
+    if (s_ctx.puzzle_solved) {
+        return;
+    }
+    if (puzzle_mode_active() && !s_ctx.puzzle_running) {
+        puzzle_start_locked();
+    }
+    gm_force_valve_target_locked(id);
+    build_solution_locked();
+    if (puzzle_mode_active() && s_ctx.puzzle_running) {
+        check_puzzle_locked();
+    } else if (!puzzle_mode_active()) {
+        queue_whoosh(true);
+    }
+}
+
+static void gm_solve_puzzle_locked(void)
+{
+    if (s_ctx.puzzle_solved) {
+        queue_puzzle_pub(TOPIC_VALVE_EVENTS, "solved");
+        return;
+    }
+    if (puzzle_mode_active() && !s_ctx.puzzle_running) {
+        puzzle_start_locked();
+    }
+    for (int i = 0; i < VALVE_COUNT; i++) {
+        if (!s_ctx.cfg.valves[i].enabled) {
+            continue;
+        }
+        gm_force_valve_target_locked(i);
+    }
+    build_solution_locked();
+    if (puzzle_mode_active()) {
+        mark_solved_locked();
+    } else {
+        queue_whoosh(true);
+        queue_puzzle_pub(TOPIC_VALVE_EVENTS, "solved");
+        queue_puzzle_pub(TOPIC_VALVE_EVENTS, "{\"event\":\"solved\"}");
+        s_ctx.puzzle_solved = true;
+        copy_bounded(s_ctx.puzzle_state, sizeof(s_ctx.puzzle_state), "solved");
+    }
 }
 
 static const char *valve_phase(int id)
@@ -1453,6 +1528,9 @@ esp_err_t valve_engine_handle_command_json(const char *json, char *response, siz
         cmd = n->valuestring;
     }
     n = cJSON_GetObjectItemCaseSensitive(root, "Valve");
+    if (!cJSON_IsNumber(n)) {
+        n = cJSON_GetObjectItemCaseSensitive(root, "valve");
+    }
     if (cJSON_IsNumber(n)) {
         valve_id = (int)n->valuedouble;
     }
@@ -1482,6 +1560,19 @@ esp_err_t valve_engine_handle_command_json(const char *json, char *response, siz
             puzzle_reset_locked();
         }
         copy_bounded(response, response_size, "{\"ok\":true}");
+    } else if (cmd && strcmp(cmd, "reset") == 0) {
+        puzzle_reset_locked();
+        copy_bounded(response, response_size, "{\"ok\":true,\"Command\":\"reset\"}");
+    } else if (cmd && (strcmp(cmd, "solve") == 0 || strcmp(cmd, "solvePuzzle") == 0)) {
+        gm_solve_puzzle_locked();
+        copy_bounded(response, response_size, "{\"ok\":true,\"Command\":\"solve\"}");
+    } else if (cmd && strcmp(cmd, "solveValve") == 0) {
+        if (valve_id < 0 || valve_id >= VALVE_COUNT) {
+            copy_bounded(response, response_size, "{\"ok\":false,\"error\":\"valve\"}");
+        } else {
+            gm_solve_valve_locked(valve_id);
+            copy_bounded(response, response_size, "{\"ok\":true,\"Command\":\"solveValve\"}");
+        }
     } else if (cmd && strcmp(cmd, "enable") == 0) {
         enable_prop();
         copy_bounded(response, response_size, "{\"ok\":true,\"Command\":\"enable\"}");

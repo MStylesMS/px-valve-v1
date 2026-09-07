@@ -6,6 +6,14 @@ Version numbers correspond to the contents of `version.txt`.
 
 ## [Unreleased]
 
+## [0.06] - 2026-09-07
+
+### Added
+
+- GM overrides: `solveValve` (one valve / advance path) and `solve` (whole
+  puzzle finale). Live buttons for each valve ID and Solve valve puzzle.
+  `reset` clears GM forced steps.
+
 ## [0.05] - 2026-09-06
 
 ### Fixed

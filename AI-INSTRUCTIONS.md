@@ -40,13 +40,14 @@ phone / tablet / desktop — see Responsive section). Plan:
 
 | Topic | Payload |
 |-------|---------|
-| `/Paradox/TFD/Valve/Prop/Commands` | `enable` / `disable` / `forceScan`, `{Valve,Inlet}` |
+| `/Paradox/TFD/Valve/Prop/Commands` | `enable` / `disable` / `forceScan`, `{Valve,Inlet}`, GM `solve` / `solveValve` |
 | `/Paradox/TFD/Valve/Prop/Events` | `{Valve, Position, Enabled, Inlet}` |
 | `/Paradox/Props` | heartbeat id `Valve32Prop` |
 
 Do not rewrite `valve3.js` / `generator.js` unless asked. Path work goes in
 `valve4.js` until the ESP engine matches VALVE-LOGIC and is OTAd.
 Accept `command` as an alias of `Command`; publish PascalCase.
+GM: `solveValve` advances one step; `solve` finishes the puzzle (Live buttons).
 
 ## Other conventions
 

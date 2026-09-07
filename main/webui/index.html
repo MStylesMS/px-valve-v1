@@ -55,7 +55,20 @@
                 <button class="btn btn-start" data-cmd='{"Command":"start"}'>Start path</button>
                 <button class="btn btn-warn" data-cmd='{"Command":"reset"}'>Reset path</button>
             </div>
-            <p class="hint" id="actionHint">Prop MQTT: enable / disable / forceScan. Start / reset only when this prop owns the puzzle (valve3.js stopped).</p>
+            <div class="btn-grid" id="gmActions" style="margin-top:0.65rem;">
+                <button class="btn btn-start" data-cmd='{"command":"solve"}'>Solve valve puzzle</button>
+            </div>
+            <div class="btn-grid" id="valveSolveActions" style="margin-top:0.65rem;">
+                <button class="btn btn-ghost" data-cmd='{"command":"solveValve","valve":0}'>Solve 0</button>
+                <button class="btn btn-ghost" data-cmd='{"command":"solveValve","valve":1}'>Solve 1</button>
+                <button class="btn btn-ghost" data-cmd='{"command":"solveValve","valve":2}'>Solve 2</button>
+                <button class="btn btn-ghost" data-cmd='{"command":"solveValve","valve":3}'>Solve 3</button>
+                <button class="btn btn-ghost" data-cmd='{"command":"solveValve","valve":4}'>Solve 4</button>
+                <button class="btn btn-ghost" data-cmd='{"command":"solveValve","valve":5}'>Solve 5</button>
+                <button class="btn btn-ghost" data-cmd='{"command":"solveValve","valve":6}'>Solve 6</button>
+                <button class="btn btn-ghost" data-cmd='{"command":"solveValve","valve":7}'>Solve 7</button>
+            </div>
+            <p class="hint" id="actionHint">GM: Solve N marks that valve (any seat) and advances the path; Solve valve puzzle finishes the whole puzzle. Prop MQTT: enable / disable / forceScan.</p>
             <pre id="actionLog" class="log"></pre>
         </section>
     </main>
