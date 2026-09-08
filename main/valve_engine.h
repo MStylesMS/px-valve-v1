@@ -17,6 +17,8 @@ typedef struct {
 } valve_battery_snapshot_t;
 
 esp_err_t valve_engine_init(void);
+/* Start the scan task after Wi-Fi/SoftAP so SPI work cannot block the console. */
+esp_err_t valve_engine_start(void);
 
 #define VALVE_STATE_JSON_MAX 8192
 #define VALVE_CONFIG_JSON_MAX 32768

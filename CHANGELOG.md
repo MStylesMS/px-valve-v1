@@ -6,6 +6,57 @@ Version numbers correspond to the contents of `version.txt`.
 
 ## [Unreleased]
 
+## [0.11] - 2026-09-07
+
+### Fixed
+
+- MCP probe never reached the bus: IDF 6 rejects `spi_device_polling_start`
+  with a finite timeout, so every transfer errored and chips 0–2 always read
+  as missing (root cause of the 0.07 "not found" banner on the live panel).
+  Transfers now use `spi_device_queue_trans` + `get_trans_result` (80 ms).
+- Scan task slept `pdMS_TO_TICKS(5)` = 0 ticks at 100 Hz, starving IDLE and
+  tripping the task WDT on a bench chip. Sleep is now ≥1 tick.
+
+## [0.10] - 2026-09-07
+
+### Fixed
+
+- SoftAP and STA now start **before** the MCP scan task. 0.09 created
+  `valve_scan` at priority 6 first; SPI reads on a bare bus never returned,
+  so `web_ui_start()` never ran and neither STA nor `Paradox-PXValveV1-*`
+  came up.
+- SPI uses `SPI_DMA_DISABLED` and timed `polling_start`/`end` (80 ms).
+  Missing expanders fail the IODIRA probe instead of hanging the CPU.
+- Panel I/O stays off and every page shows the red `hwFault` banner until
+  chips 0–2 answer. Re-probe every 500 ms after seating.
+
+## [0.09] - 2026-09-07
+
+### Fixed
+
+- Restored the 0.06 MCP path: talk to chips 0–2 after SPI init, no
+  write/readback presence probe (0.07/0.08 probes false-failed the live panel
+  and 0.08 could block boot before Wi-Fi).
+- MCP init runs from the scan task after SoftAP/STA start so a wedged SPI
+  bus cannot keep the console offline.
+
+## [0.08] - 2026-09-07
+
+### Fixed
+
+- MCP presence probe no longer uses `spi_device_polling_start/end` or OLATA
+  readback. Those rejected the live 3-chip panel (same as the first patch
+  0.13 miss). Probe IODIRA with the 0.06 `polling_transmit` path.
+
+## [0.07] - 2026-09-07
+
+### Fixed
+
+- Missing MCP23S17 expanders (bare DevKit / unseated panel) no longer block
+  boot or trip the scan-task watchdog. Wi-Fi and SoftAP always come up.
+  A red banner on every console page reports the hardware fault. Panel I/O
+  stays disabled until all three chips answer a write/readback.
+
 ## [0.06] - 2026-09-07
 
 ### Added

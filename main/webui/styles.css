@@ -313,6 +313,22 @@ h1, h2, h3 {
     display: none !important;
 }
 
+.hw-banner {
+    position: sticky;
+    top: 0;
+    z-index: 80;
+    width: 100%;
+    margin: 0;
+    padding: 0.7rem 1rem;
+    background: #7f1d1d;
+    color: #fecaca;
+    font-weight: 700;
+    font-size: 0.95rem;
+    line-height: 1.35;
+    text-align: center;
+    border-bottom: 2px solid #ef4444;
+}
+
 .btn-grid {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));

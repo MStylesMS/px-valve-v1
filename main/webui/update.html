@@ -4,9 +4,10 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>PX-Valve-V1 OTA Update</title>
-    <link rel="stylesheet" href="styles.css?v=valve9">
+    <link rel="stylesheet" href="styles.css?v=valve11">
 </head>
 <body>
+    <div id="hwBanner" class="hw-banner hidden" role="alert"></div>
     <div class="bg-grid" aria-hidden="true"></div>
     <main class="wrap layout single" style="padding-top:2rem;">
         <section class="panel wide">
@@ -28,6 +29,13 @@
     <script>
         (function () {
             function el(id) { return document.getElementById(id); }
+            fetch("api/state").then(function (res) { return res.json(); }).then(function (state) {
+                var bar = el("hwBanner");
+                if (bar && state && state.hwFault) {
+                    bar.textContent = state.hwFault;
+                    bar.classList.remove("hidden");
+                }
+            }).catch(function () {});
             function log(msg) {
                 var node = el("otaLog");
                 var ts = new Date().toISOString();

@@ -350,6 +350,9 @@ static void publish_if_changed(int id, int pos, bool force)
 
 static void force_scan_all(void)
 {
+    if (!mcp23s17_ready()) {
+        return;
+    }
     for (int i = 0; i < VALVE_COUNT; i++) {
         int pos = read_position(i, true);
         s_ctx.live[i].debounce = 0;
@@ -838,7 +841,7 @@ static const char *valve_phase(int id)
 
 static void scan_all(void)
 {
-    if (!s_ctx.prop_enabled) {
+    if (!s_ctx.prop_enabled || !mcp23s17_ready()) {
         return;
     }
     for (int i = 0; i < VALVE_COUNT; i++) {
@@ -868,15 +871,39 @@ static void scan_all(void)
 
 static void scan_task(void *arg)
 {
+    bool mcp_started = false;
     (void)arg;
     while (true) {
-        int period = 10;
-        if (valve_lock()) {
+        int period = 500;
+        if (!mcp_started) {
+            (void)mcp23s17_init();
+            mcp_started = true;
+            if (mcp23s17_ready() && valve_lock()) {
+                for (int i = 0; i < VALVE_COUNT; i++) {
+                    activate_valve(i, s_ctx.live[i].inlet);
+                }
+                valve_unlock();
+                ESP_LOGI(TAG, "MCP23S17 cluster ready — panel I/O enabled");
+            }
+        } else if (!mcp23s17_ready()) {
+            if (mcp23s17_probe() && valve_lock()) {
+                for (int i = 0; i < VALVE_COUNT; i++) {
+                    activate_valve(i, s_ctx.live[i].inlet);
+                }
+                valve_unlock();
+                ESP_LOGI(TAG, "MCP23S17 cluster appeared — panel I/O enabled");
+            }
+        } else if (valve_lock()) {
             period = s_ctx.cfg.scan_period_ms;
             scan_all();
             valve_unlock();
         }
-        vTaskDelay(pdMS_TO_TICKS(clamp_int(period, 5, 200)));
+        {
+            /* pdMS_TO_TICKS(5) is 0 at a 100 Hz tick; vTaskDelay(0) never
+             * yields to IDLE and trips the task WDT. Always sleep ≥1 tick. */
+            TickType_t ticks = pdMS_TO_TICKS(clamp_int(period, 5, 2000));
+            vTaskDelay(ticks > 0 ? ticks : 1);
+        }
     }
 }
 
@@ -1399,23 +1426,22 @@ esp_err_t valve_engine_init(void)
     (void)init_spiffs();
     load_config_file();
 
-    if (mcp23s17_init() != ESP_OK) {
-        ESP_LOGE(TAG, "MCP23S17 init failed");
-        return ESP_FAIL;
-    }
     for (int i = 0; i < VALVE_COUNT; i++) {
-        activate_valve(i, 0);
         s_ctx.live[i].position = 0;
         s_ctx.live[i].inlet = 0;
     }
 
     copy_bounded(s_ctx.puzzle_state, sizeof(s_ctx.puzzle_state), "ready");
 
-    if (xTaskCreate(scan_task, "valve_scan", 4096, NULL, 6, NULL) != pdPASS) {
+    ESP_LOGI(TAG, "Valve engine initialized (scan starts after Wi-Fi)");
+    return ESP_OK;
+}
+
+esp_err_t valve_engine_start(void)
+{
+    if (xTaskCreate(scan_task, "valve_scan", 4096, NULL, 4, NULL) != pdPASS) {
         return ESP_ERR_NO_MEM;
     }
-
-    ESP_LOGI(TAG, "Valve engine initialized (Basic I/O default, scan starts disabled)");
     return ESP_OK;
 }
 
@@ -1433,6 +1459,15 @@ void valve_engine_get_state_json(char *out, size_t out_size)
     cJSON_AddStringToObject(root, "status", s_ctx.prop_enabled ? "online" : "paused");
     cJSON_AddStringToObject(root, "version", app ? app->version : "0.01");
     cJSON_AddBoolToObject(root, "enabled", s_ctx.prop_enabled);
+    {
+        bool hw_ok = mcp23s17_ready();
+        char hw_fault[128];
+        mcp23s17_get_fault(hw_fault, sizeof(hw_fault));
+        cJSON_AddBoolToObject(root, "hwOk", hw_ok);
+        if (!hw_ok && hw_fault[0]) {
+            cJSON_AddStringToObject(root, "hwFault", hw_fault);
+        }
+    }
     cJSON_AddStringToObject(root, "gameMode", s_ctx.cfg.game_mode);
     cJSON_AddStringToObject(root, "puzzleState",
                             s_ctx.puzzle_state[0] ? s_ctx.puzzle_state

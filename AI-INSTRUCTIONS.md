@@ -54,6 +54,8 @@ GM: `solveValve` advances one step; `solve` finishes the puzzle (Live buttons).
 - Do not edit `props/esp32/archive/valve32` or `tfd-old` runtime.
 - Version bump default `+0.01`.
 - Path-relative assets + `lib_http_proxy` when serving embedded UI.
+- Hardware must not block boot: `hwOk` / `hwFault` + red `.hw-banner`.
+  Shared contract: [../px-components/docs/hw-fault.md](../px-components/docs/hw-fault.md).
 
 ## Suite standards
 
